@@ -1,0 +1,105 @@
+---
+title: "XAJ-sceua"
+author: "fan"
+date: "2023/2/11"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r}
+library(hydroTools)
+```
+
+```{r}
+## 模型介绍
+# 1. 使用的为三水源模型
+# 2. 坡面汇流使用单位线
+# 3. 壤中流和地下径流汇流使用线性水库
+# 4. 将整个流域作为一个单元流域考虑
+```
+
+
+
+```{r}
+# 站点基本信息
+# flood_no <- '2007072905'
+flood_cal <- c('2007072905', '2009051404', '2009052718', '2010072400', '2010082318', '2011091708')
+flood_val <- c('2011091200 - 副本', '2012091104')
+
+basin.info <- 4621.35
+q.data <- read.csv(paste('C:/aaUserProgram/ArcGIS10.8/Project/shuikexue/模型构建/', flood_cal[5], '.csv', sep = ''))
+# q.data <- read.csv('C:/aaUserProgram/ArcGIS10.8/Project/shuikexue/result.csv')
+# best.params <- c(1.500000, 0.000001, 14.713336, 89.996129, 46.047847, 0.063660, 0.100000, 10.000423, 1.244793, 0.152762, 0.699998, 0.900000, 0.987350, 4.354315, 5.999583)
+```
+
+
+```{r}
+## 设置参数（只需要跑第一次）
+param.names <- c("KC", "IM", "WUM", "WLM", "WDM", "C", "B", "SM", "EX", "KI", "KG", "CI", "CG", "N", "NK")
+
+lower <- c(0.20, 0.00, 5.0, 10.0, 10.0, 0.05, 0.1, 10.0, 0.50, 0.01, 0.01, 0.50, 0.95, 0.1, 1.0)
+upper <- c(1.50, 0.05, 20.0, 90.0, 60.0, 0.20, 0.6, 60.0, 2.00, 0.70, 0.70, 0.90, 0.998, 5.0, 6.0)
+
+names(lower) <- param.names
+names(upper) <- param.names
+
+init.par <- lower + (upper - lower) / 2
+```
+
+
+```{r}
+# 参数率定函数
+XAJ.sceua.basic <- function(param.values, obs=q.data$q){
+  modeloutput <- VIC5::XAJ(q.data$prcp, q.data$et, param.values, basin.info, dt=1)
+  
+  Qsim <- modeloutput$Q
+  Qobs <- obs
+  
+  gof.xaj <- hydroGOF::mae(Qsim, Qobs)
+  return(gof.xaj)
+}
+
+out <- rtop::sceua(XAJ.sceua.basic, pars = init.par,
+                   lower = lower, upper = upper,)
+best.params <- out$par
+
+```
+
+```{r}
+# 使用率定好的参数跑模型并计算评价指标
+output.cal <- VIC5::XAJ(q.data$prcp, q.data$et, best.params, basin.info, dt=1)
+
+calc.criteria <- function(qsim, qobs){
+  nse <- hydroGOF::NSE(qsim, qobs, na.rm=TRUE)
+  pbias <- hydroGOF::pbias(qsim, qobs, na.rm=TRUE)
+  kge <- hydroGOF::KGE(qsim, qobs, na.rm=TRUE)
+  r <- hydroGOF::R2(qsim, qobs, na.rm=TRUE)
+  ve <- hydroGOF::VE(qsim, qobs, na.rm=TRUE)
+  criteria <- c(round(nse, 2), round(pbias, 2), round(kge, 2), round(r, 2), round(ve, 2))
+  criteria.names <- c('NSE', 'PBIAS', 'KGE', 'R2', 'VE')
+  names(criteria) <- criteria.names
+  
+  return(criteria)
+}
+
+criteria.cal <- calc.criteria(round(output.cal$Q, 2), q.data$q)
+print('率定期指标:')
+criteria.cal
+```
+
+```{r}
+# 保存结果
+Q.out <- data.frame(q.data$q)
+Q.out$Qsim <- round(output.cal$Q, 2)
+write.csv(Q.out, paste('C:/aaUserProgram/ArcGIS10.8/Project/shuikexue/模拟结果/率定/', 'flood_no', '_XAJ模拟结果.csv', sep = ''), 
+          row.names = FALSE)
+print('保存完成')
+```
+
+以上部分为历时时期XAJ模型模拟的全部过程
+#######################################################################################
+#######################################################################################
+
